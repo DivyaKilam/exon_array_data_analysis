@@ -1,1 +1,103 @@
 
+# Run apt-probeset-summarize to obtain gene, exon and dabg values
+# wget file and decompress it
+  wget 'ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE19nnn/GSE19891/suppl/GSE19891_RAW.tar'
+  tar xf GSE19891_RAW.tar
+# Gene
+  apt-probeset-summarize -a rma-sketch -p HuEx-1_0-st-v2.r2.pgf -c HuEx-1_0-st-v2.r2.clf -m HuEx-1_0-st-v2.r2.dt1.hg18.core.mps -qc-  probesets HuEx-1_0-st-v2.r2.qcc -o OUT_GENE *.CEL
+# Exon
+  apt-probeset-summarize -a rma-sketch -p HuEx-1_0-st-v2.r2.pgf -c HuEx-1_0-st-v2.r2.clf -s HuEx-1_0-st-v2.r2.dt1.hg18.core.ps -qc-       probesets HuEx-1_0-st-v2.r2.qcc -o OUT_EXON *.CEL
+# DABG
+  apt-probeset-summarize -a dabg -p HuEx-1_0-st-v2.r2.pgf -c HuEx-1_0-st-v2.r2.clf -b HuEx-1_0-st-v2.r2.antigenomic.bgp -o OUT_DABG       *.CEL
+
+# Read in the tables and identify outliers
+  pdf("pca_plots.pdf")
+  par(mfrow=c(1,2),oma=c(4,0.1,4,0.1))
+
+#gene matrix
+  dat.gene <- t(gene)
+  dat.gene <- scale(dat.gene,center=T,scale=T)
+  pca <- prcomp(dat.gene)
+  va <- pca$sdev^2/sum(pca$sdev^2)
+
+  plot(pca$x[,1],pca$x[,2],type="n",xlab=paste("Component 1 (",round((va[1]*100),1),"%)",sep=""),ylab=paste("Component 2 (",round((va[2]    *100),1),"%)",sep=""))
+  points(pca$x[,1],pca$x[,2],col=1,pch=21, bg=c(rep(1,3),rep(2,3),rep(3,3),rep(4,3),rep(5,3)))
+  title("Gene-level PCA - all probesets")
+  legend(0,0,col=c(1:5),pch=16,c("DMSO","Clotrimazole","Flunarizine","DMSO2","Chlorhexidine"),cex=0.4)
+
+  dat.exon <- t(exon)
+  dat.exon <- scale(dat.exon,center=T,scale=T)
+  pca <- prcomp(dat.exon)
+  va <- pca$sdev^2/sum(pca$sdev^2)
+
+  plot(pca$x[,1],pca$x[,2],type="n",xlab=paste("Component 1 (",round((va[1]*100),1),"%)",sep=""),ylab=paste("Component 2 (",round((va[2]    *100),1),"%)",sep=""))
+  points(pca$x[,1],pca$x[,2],col=1,pch=21, bg=c(rep(1,3),rep(2,3),rep(3,3),rep(4,3),rep(5,3)))
+  title("Exon-level PCA - all probesets")
+  legend(0,0,col=c(1:5),pch=16,c("DMSO","Clotrimazole","Flunarizine","DMSO2","Chlorhexidine"),cex=0.4)
+  dev.off()
+
+# Compare differentially expressed genes between clotrimazole and its control and chlorhexidine and its control
+  x<-intersect(dimnames(exon)[[1]],dimnames(map)[[1]])
+# subset rows in the matricies
+  e<-exon[x,]
+  d<-dabg[x,]
+  m<-map[x,]
+  
+#unique transcript cluster IDs
+  u<-unique(as.character(m$transcript_cluster_id))
+  u<-intersect(u,dimnames(gene)[[1]])
+  r <- c(1,0,1,1,1,0,1,1,1,0,1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1)
+  output.list<-NULL
+  cnt<-1
+  for(i in 1:length(u)) {
+    ex<-dimnames(m[m$transcript_cluster_id%in%u[i],])[[1]]
+    d.exon<-e[ex,]
+    d.exon[is.na(d.exon)]<-0
+    d.gene<-gene[i,1:6]
+    tmp<-exon.ni(genex=as.numeric(d.gene),exonx=d.exon,rx=r)
+    output<-data.frame(u[i],ex,tmp)
+    output.list[[i]]<-output
+    print(cnt)
+    print(u[i])
+    cnt<-cnt+1
+  }
+  final.output<-do.call(rbind,output.list)
+# subset rows in the matricies
+  e<-exon[x,10:15]
+  d<-dabg[x,10:15]
+> m<-map[x,]
+
+#unique transcript cluster IDs
+> u<-unique(as.character(m$transcript_cluster_id))
+> u<-intersect(u,dimnames(gene)[[1]])
+> length(u)
+[1] 17881
+> for(i in 1:length(u)) {
+ex<-dimnames(m[m$transcript_cluster_id%in%u[i],])[[1]]
+d.exon<-e[ex,]
+d.exon[is.na(d.exon)]<-0
+d.gene<-gene[i,10:15]
+tmp<-exon.ni(genex=as.numeric(d.gene),exonx=d.exon,rx=r)
+output<-data.frame(u[i],ex,tmp)
+output.list[[i]]<-output
+print(cnt)
+print(u[i])
+cnt<-cnt+1
+}
+final.output<-do.call(rbind,output.list)
+# Functions
+t.two <- function(x,sam,v=F) {
+x <- as.numeric(x)
+s1<-(x[1]+x[2]+x[3])/3
+s2<-(x[4]+x[5]+x[6])/3
+si<-log2(abs(s1/s2))
+out <- t.test(as.numeric(x[sam]),as.numeric(x[!sam]),alternative="two.sided",var.equal=v)
+o <- as.numeric(c(out$statistic,out$p.value,out$conf.int[1],out$conf.int[2],si))
+names(o) <- c("test_statistic","pv","lower_ci","upper_ci","fold_change")
+return(o)
+}
+exon.ni <- function(genex,exonx,rx) {
+ni <- t(t(exonx)-genex)
+ttest <- t(apply(ni,1,t.two,sam=as.logical(r),v=F))
+return(ttest)
+}
